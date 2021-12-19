@@ -1,70 +1,48 @@
-const ObjectsToCsv = require('objects-to-csv');
-const exchangeData = require("./gatedata.json");
-const candleEngine = {};
+/*
+when ever a doji candle forms on 1hr/2hr/4hr, wait for next or subsequent candle to close above or below
+if next coming candle closes above the doji - 2/3 % up move will come
+if next coming candle closes below the doji - 2/3 % down move will come
+*/
+var fs = require('fs');
+const {pairs} = require("./pairs.js");
+const exchangeDetailsgate = require("./exchangeDetailgate");
 
-let dccAnalysisObject = {
-    "Pair":"",
-    "DateTime" : "",
-    "Last 2 candles color" :"",
-    "Last 2 candle close":"",
-    "Last 2 candles volume" :"",
-    "DCC Color" : "",
-    "DCC Candle body %":"",
-    "DCC Candle close":"",
-    "Next 12 candles percentage":"",
-    "Next 12 candles volume":"",
-    "Next 12 Candles colors":"",
-    "Next 12 candles close":""
-}
 
-candleEngine.processCandleData = function(pairsData){
-    let possibleEntryPairs = {};
-    Object.keys(pairsData).forEach((key)=>{
-        possibleEntryPairs[key]= {
-            isDojiExists:false,
-            allCandle:[]
-        }
-        let candleData = pairsData[key];
-        candleData.forEach(candle=>{
-            let _candle = {
-                candle,
-                color:'',
-                bodyPercentage:0,
-                isDoji:false
+let dcc_coin_pairs = {};
+let i =0;
+setInterval(()=>{
+    i = 0;
+    checkCandleData()
+},(1000 * 60 * 60))
+
+
+function checkCandleData(){
+    let pair = pairs[i];
+    if(pair){
+        let to = Math.floor((new Date()).getTime() / 1000);
+        let from = to - (3 * 3600);
+        exchangeDetailsgate.getCandleStickData(pair.name,'1h',from,to).then((result)=>{
+            if(result && result.data){
+                processCandleStickData(pair.name, result.data);
+                console.log(pair.name)
             }
-            let candleHeight = Math.abs(candle.h - candle.l);
-            _candle.color = candle.c - candle.o > 0 ? "green": "red"
-            let body = Math.abs(candle.c - candle.o);
-            let bodyPercentage = (body / candleHeight) * 100;
-            _candle.bodyPercentage = bodyPercentage;
-            //find body percentage to find doji or not 
-            if(bodyPercentage < 10){
-                _candle.isDoji = true;
-                _candle.bodyPercentage = bodyPercentage;
-                possibleEntryPairs[key].isDojiExists = true;
-                console.log(candle.t)
-                var date = new Date(candle.t * 1000).toISOString();
-                console.log(date)
-                console.log(key)
-            }
-            possibleEntryPairs[key].allCandle.push(_candle);
+        }).catch((error)=>{
+            console.log(error)
         })
-        if(!possibleEntryPairs[key].isDojiExists){
-            delete possibleEntryPairs[key]
-        }
-    })
-    return possibleEntryPairs
-
+        setTimeout(()=>{
+            i++;
+            checkCandleData();
+        },1500)
+    }
 }
 
-candleEngine.studyData = function(pair){
-    let data = require(`./temp/${pair}_1h.json`);
-    data = data.sort((a, b) => b.t - a.t);
-    const dojiMap = {};
+function processCandleStickData(pair,data){
+    data.pop();
+   // data = data.sort((a, b) => b.t - a.t);
+    let dojiMap = {};
 
     let i = 4;
     let dojiFoundTime = null;
-    const allCandle = {};
 
     data.forEach(candle=>{
         let time = candle.t;
@@ -87,57 +65,30 @@ candleEngine.studyData = function(pair){
         _candle.timeInUTC = new Date(candle.t * 1000).toISOString();
         _candle.volume = candle.v;
         //find body percentage to find doji or not 
-        allCandle[candle.t] = _candle;
-        if(bodyPercentage < 3){
+        if(bodyPercentage < 2 && Number(candle.v) > 5000){
             _candle.isDoji = true;
 
-            if(i < 3){
-                time = null;
-                dojiMap[dojiFoundTime].backCandles.push(_candle); 
+            if(i < 3 && dojiMap[dojiFoundTime]){
+                if(candle.t > dojiMap[dojiFoundTime]._candle.candle.t){
+                    dojiMap[dojiFoundTime].nextCandles.push(_candle); 
+                }
             }else{
                 dojiMap[candle.t] = {
-                    candle:_candle,
-                    nextCandles:[],
-                    backCandles:[]
+                    _candle,
+                    nextCandles:[]
                 }
                 dojiFoundTime = candle.t;
                 i = 3;
                 time = null;
-                dojiMap[dojiFoundTime].nextCandles.push(allCandle[candle.t + 3600]); 
-                dojiMap[dojiFoundTime].nextCandles.push(allCandle[candle.t + (3600 * 2)]); 
-                dojiMap[dojiFoundTime].nextCandles.push(allCandle[candle.t + (3600 * 3)]); 
-                dojiMap[dojiFoundTime].nextCandles.push(allCandle[candle.t + (3600 * 4)]); 
-                dojiMap[dojiFoundTime].nextCandles.push(allCandle[candle.t + (3600 * 5)]); 
-                dojiMap[dojiFoundTime].nextCandles.push(allCandle[candle.t + (3600 * 6)]); 
-                dojiMap[dojiFoundTime].nextCandles.push(allCandle[candle.t + (3600 * 7)]); 
-                dojiMap[dojiFoundTime].nextCandles.push(allCandle[candle.t + (3600 * 8)]); 
-                dojiMap[dojiFoundTime].nextCandles.push(allCandle[candle.t + (3600 * 9)]); 
-                dojiMap[dojiFoundTime].nextCandles.push(allCandle[candle.t + (3600 * 10)]); 
-                dojiMap[dojiFoundTime].nextCandles.push(allCandle[candle.t + (3600 * 11)]); 
-                dojiMap[dojiFoundTime].nextCandles.push(allCandle[candle.t + (3600 * 12)]); 
             }
 
         }
 
         if(time && dojiMap[dojiFoundTime]){
-            dojiMap[dojiFoundTime].backCandles.push(_candle); 
-            // if(dojiMap[dojiFoundTime].backCandles[1] && dojiMap[dojiFoundTime].backCandles[0]){
-            //     if(dojiMap[dojiFoundTime].backCandles[0].color == dojiMap[dojiFoundTime].candle.color
-            //         || dojiMap[dojiFoundTime].candle.color ==  dojiMap[dojiFoundTime].nextCandles[0].color
-            //         || dojiMap[dojiFoundTime].candle.color == dojiMap[dojiFoundTime].backCandles[1].color){
-            //         delete dojiMap[dojiFoundTime];
-            //         i = 6;  
-            //         dojiFoundTime = null;     
-            //     }
-            // }
-              if(dojiMap[dojiFoundTime].backCandles[0].color == dojiMap[dojiFoundTime].candle.color
-                    || dojiMap[dojiFoundTime].candle.color ==  dojiMap[dojiFoundTime].nextCandles[0].color
-                    ){
-                    delete dojiMap[dojiFoundTime];
-                    i = 4;  
-                    dojiFoundTime = null;     
-                }
-
+            if(candle.t > dojiMap[dojiFoundTime]._candle.candle.t){
+                dojiMap[dojiFoundTime].nextCandles.push(_candle); 
+            }
+           
         }
         
         if(i < 4){
@@ -151,62 +102,39 @@ candleEngine.studyData = function(pair){
 
     })
 
-    return dojiMap;
+    if(Object.keys(dojiMap).length >0){
+        dcc_coin_pairs[pair] = {
+            pair:pair,
+            value:dojiMap
+        };
+        console.log(JSON.stringify(dcc_coin_pairs))
+        try{
+            fs.readFile('doji.json', function(err, data){
+                if (err){
+                    console.log(err);
+                } else {
+                obj = JSON.parse(data); //now it an object
+                if(!obj || obj == '')
+                obj.data = [];
+    
+                obj.data.push(dcc_coin_pairs[pair]); //add some data
+                json = JSON.stringify(obj); //convert it back to json
+                fs.writeFile('doji.json', json, function (err) {
+                    if (err) throw err;
+                    console.log('Saved!');
+                }); // write it back 
+            }});
+        }catch(err){
+            console.log(err)
+        }
+
+    }
 }
 
-let allPairDojiData = {};
-let ignoreList = ["YFI_USDT","ZEC_USDT","CRU_USDT","BTC_USDT","SNX_USDT","LIT_USDT"]
-candleEngine.studyAllPairData = function(callback){
-    exchangeData.pairs.forEach(p=>{
-        if(ignoreList.indexOf(p.name) < 0)
-        allPairDojiData[p.name] = this.studyData(p.name)
-    })
-
-    console.log(allPairDojiData)
-    callback()
+checkCandleData();
+//processCandleStickData("MINA_USDT",[{"t":1639638000,"o":"3.544","v":33176,"h":"3.569","c":"3.562","l":"3.544"},{"t":1639641600,"o":"3.556","v":79664,"h":"3.556","c":"3.522","l":"3.501"},{"t":1639645200,"o":"3.534","v":39809,"h":"3.534","c":"3.534","l":"3.513"},{"t":1639648800,"o":"3.532","v":20077,"h":"3.558","c":"3.551","l":"3.531"},{"t":1639652400,"o":"3.549","v":89750,"h":"3.59","c":"3.541","l":"3.506"},{"t":1639656000,"o":"3.547","v":3326,"h":"3.554","c":"3.55","l":"3.547"}])
+module.exports = {
+    getDCCData:function(){
+        return dcc_coin_pairs;
+    }
 }
-
-candleEngine.createCSVForAnalysis = function(pair){
-    let _pair = allPairDojiData[pair];
-    let csvData = [];
-    Object.keys(_pair).forEach(k=>{
-        let dojiCandle = _pair[k];
-        let _obj = {...dccAnalysisObject};
-        _obj["Pair"] = pair;
-        _obj["DateTime"] = dojiCandle.candle.timeInUTC;
-        _obj["DCC Color"] = dojiCandle.candle.color;
-        _obj["DCC Candle body %"] = dojiCandle.candle.bodyPercentage;
-        _obj["DCC Candle close"] = dojiCandle.candle.candle.c;
-        _obj["Last 2 candles color"] = `${dojiCandle.backCandles[1].color},${dojiCandle.backCandles[0].color}`;
-        _obj["Last 2 candle close"] = `${dojiCandle.backCandles[1].candle.c},${dojiCandle.backCandles[0].candle.c}`;
-        _obj["Last 2 candles volume"] = `${dojiCandle.backCandles[1].candle.v},${dojiCandle.backCandles[0].candle.v}`;
-
-        let next12candle_per = [];
-        let next12candle_volume = [];    
-        let next12candle_close = [];      
-        let next12candle_color = [];
-        dojiCandle.nextCandles.forEach((c,i)=>{
-            if(c && c.candle){
-                let nextCandleClose = c.candle.c;
-                let dojiCandleClose = dojiCandle.candle.candle.c;
-                let diff = nextCandleClose - dojiCandleClose;
-                let percentage = Number((diff/dojiCandleClose) * 100).toFixed(2)
-                next12candle_per.push(percentage);
-                next12candle_volume.push(c.candle.v);
-                next12candle_close.push(nextCandleClose);
-                next12candle_color.push(c.color)
-            }
-        })
-        
-        _obj["Next 12 Candles colors"] = next12candle_color.toString();
-        _obj["Next 12 candles close"] = next12candle_close.toString();
-        _obj["Next 12 candles percentage"] = next12candle_per.toString();
-        _obj["Next 12 candles volume"] = next12candle_volume.toString();
-        csvData.push(_obj)
-    })
-
-    new ObjectsToCsv(csvData).toDisk(`./${pair}.csv`);
-    console.log(csvData)
-}
-
-module.exports = candleEngine;
